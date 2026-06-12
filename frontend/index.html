@@ -13,7 +13,7 @@
     --surface:    #0f1219;
     --card:       #141820;
     --card2:      #181d2a;
-    --border:     #1c2133;
+    --border:      #1c2133;
     --border2:    #232b3e;
     --green:      #3c8c65;
     --green-glow: 0 0 18px #00e67635;
@@ -473,7 +473,8 @@ Your OpenRouter API Key is pulled securely from the backend `.env` file. Start c
 <div class="toast" id="toast"></div>
  
 <script>
-const API = 'http://localhost:8000';
+// Target point shifted to your live cloud Render environment endpoint wrapper
+const API = 'https://bugassistant-1.onrender.com';
 let busy = false;
 let localTickets = [];
 
@@ -503,7 +504,7 @@ async function loadTickets() {
     renderSidebar();
     renderTable();
     loadStats();
-  } catch(e) { showToast('Backend offline? Run: uvicorn main:app --reload'); }
+  } catch(e) { showToast('Backend offline? Check your live status indicator on Render dashboard.'); }
 }
  
 async function loadStats() {
@@ -549,7 +550,7 @@ async function doSend() {
     await loadTickets();
   } catch(e) {
     removeTyping();
-    addMsg('assistant', `❌ Error: ${e.message}\n\nEnsure backend server is running and .env key is configured properly.`);
+    addMsg('assistant', `❌ Error: ${e.message}\n\nEnsure backend container is live on Render and your model keys are safe.`);
   } finally {
     busy = false;
     document.getElementById('sendBtn').disabled = false;
@@ -580,7 +581,7 @@ function escapeHtml(str) {
 function parseMarkdown(text) {
   let safe = escapeHtml(text);
   // Bold parser
-  safe = safe.replace(/\*\*(.*?)\*\"/g, '<strong>$1</strong>');
+  safe = safe.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
   // Inline code block parser
   safe = safe.replace(/`([^`]+)`/g, '<code>$1</code>');
   return safe;
@@ -593,11 +594,11 @@ function addMsg(role, text, toolsUsed = []) {
  
   const div = document.createElement('div');
   div.className = `msg ${role}`;
-  
+   
   let toolsHTML = '';
   if (toolsUsed.length) {
     const safeButtons = toolsUsed.map(t => `<span class="tc">⚙ ${escapeHtml(t.tool)}</span>`).join('');
-    toolsHTML = `<div class="tool-bar">${safeButtons}</div>`;
+    const"tool-bar">${safeButtons}</div>`;
   }
  
   div.innerHTML = `
@@ -607,7 +608,7 @@ function addMsg(role, text, toolsUsed = []) {
       <div class="bubble"></div>
       ${toolsHTML}
     </div>`;
-    
+     
   div.querySelector('.bubble').innerHTML = parseMarkdown(text);
   wrap.appendChild(div);
   wrap.scrollTop = wrap.scrollHeight;
