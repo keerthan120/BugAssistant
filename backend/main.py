@@ -22,10 +22,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Thread-Safe In-Memory Database Lock ────────────────────────────────────
+# ── Thread-Safe In-Memory Database Guard ──────────────────────────────────
 db_lock = threading.Lock()
 
-# Mock Storage Data
+# Mock Storage Profile Data
 tickets: Dict[str, Any] = {
     "TKT-001": {"id":"TKT-001","title":"Login page crashes on iOS Safari","description":"Users report the login page crashes when using Safari on iOS 16+.","status":"open","priority":"high","assignee":"alice@company.com","created_at":"2026-05-20","updated_at":"2026-05-20","tags":["mobile","login","crash","ios"]},
     "TKT-002": {"id":"TKT-002","title":"API response slow on large datasets","description":"API takes >10s to respond when fetching more than 1000 records.","status":"in-progress","priority":"medium","assignee":"bob@company.com","created_at":"2026-05-21","updated_at":"2026-05-22","tags":["api","performance","timeout"]},
@@ -37,7 +37,7 @@ tickets: Dict[str, Any] = {
 
 sessions_db: Dict[str, List[Dict[str, Any]]] = {}
 
-# ── Pydantic Models ────────────────────────────────────────────────────────
+# ── Pydantic Verification Models ───────────────────────────────────────────
 class ChatRequest(BaseModel):
     message: str
     api_key: Optional[str] = None
@@ -55,7 +55,7 @@ class UpdateStatusRequest(BaseModel):
 class UpdatePriorityRequest(BaseModel):
     priority: str
 
-# ── Tool Implementations ───────────────────────────────────────────────────
+# ── Core Tool Implementations ──────────────────────────────────────────────
 def today():
     return datetime.now().strftime("%Y-%m-%d")
 
@@ -135,7 +135,7 @@ async def tool_google_search_agent(query: str):
                 f"https://api.duckduckgo.com/?q={query}&format=json&no_html=1&skip_disambig=1"
             )
             if r.status_code != 200:
-                return {"success": False, "query": query, "message": f"Search API error status code {r.status_code}"}
+                return {"success": False, "query": query, "message": f"Search engine service error code: {r.status_code}"}
             d = r.json()
             abstract = d.get("AbstractText", "")
             related = [x.get("Text", "") for x in d.get("RelatedTopics", [])[:4] if "Text" in x]
@@ -159,7 +159,7 @@ def execute_local_tool(name: str, args: dict):
         try:
             return mappers[name](**args)
         except TypeError as e:
-            return {"error": f"Invalid argument properties passed to {name}: {str(e)}"}
+            return {"error": f"Invalid argument properties passed to context module {name}: {str(e)}"}
     return {"error": f"Unknown tool: {name}"}
 
 TOOLS_SCHEMA = [
@@ -180,7 +180,7 @@ Help triage, manage, and resolve software issues using the ticket management sys
 Always use tools to fetch real data. Give clear, structured summaries after tool results.
 Today's date: 2026-05-26."""
 
-# ── Agent Loop (With Complete History Sequence Tracking) ───────────────────
+# ── Synchronized Agent Loop ────────────────────────────────────────────────
 async def run_agent(user_message: str, fallback_key: Optional[str], session_id: str):
     active_api_key = os.getenv("OPENROUTER_API_KEY") or fallback_key
     
@@ -229,13 +229,26 @@ async def run_agent(user_message: str, fallback_key: Optional[str], session_id: 
             choice = data["choices"][0]
             msg = choice["message"]
             
-            # Append assistant message directly (contains nested structure for tool_calls)
+            # Save message block structurally to keep track of operations
             messages.append(msg)
 
             if msg.get("tool_calls"):
                 for tc in msg["tool_calls"]:
                     fn_name = tc["function"]["name"]
-                    fn_args = json.loads(tc["function"]["arguments"])
+                    
+                    # Defensive JSON Validation Check
+                    try:
+                        fn_args = json.loads(tc["function"]["arguments"])
+                    except json.JSONDecodeError:
+                        result = {"error": "The arguments provided by the model were malformed JSON. Please try again with proper syntax formatting."}
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tc["id"],
+                            "name": fn_name,
+                            "content": json.dumps(result)
+                        })
+                        continue
+
                     used_tools.append({"tool": fn_name, "args": fn_args})
 
                     if fn_name == "google_search_agent":
@@ -243,7 +256,7 @@ async def run_agent(user_message: str, fallback_key: Optional[str], session_id: 
                     else:
                         result = execute_local_tool(fn_name, fn_args)
 
-                    # Append corresponding tool output response to trace sequence
+                    # Append response logs into runtime pipeline tracking structures
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tc["id"],
@@ -253,7 +266,7 @@ async def run_agent(user_message: str, fallback_key: Optional[str], session_id: 
             else:
                 content = msg.get("content", "Sorry, I could not process that.")
                 
-                # Exclude the system prompt at [0] when syncing historical trace strings
+                # Exclude the layout system configuration node [0] when saving history data logs
                 sessions_db[session_id] = messages[1:]
                 
                 if len(sessions_db[session_id]) > 30:
@@ -263,7 +276,7 @@ async def run_agent(user_message: str, fallback_key: Optional[str], session_id: 
 
     return {"response": "Reached max iterations. Please try a more specific request.", "tools_used": used_tools}
 
-# ── REST Endpoints ─────────────────────────────────────────────────────────
+# ── REST Routing Endpoints ─────────────────────────────────────────────────
 
 @app.get("/")
 def root():
