@@ -19,7 +19,7 @@
     --green-glow: 0 0 18px #00e67635;
     --green-dim:  #00e67618;
     --amber:      #ffab00;
-    --amber-dim:  #ffab0012;
+    --amber-dim:  --ffab0012;
     --red:        #ff3d57;
     --red-dim:    #ff3d5712;
     --blue:       #448aff;
@@ -49,18 +49,15 @@
     height: 100vh;
   }
  
-  /* Scanlines */
   body::after {
     content:''; position:fixed; inset:0; pointer-events:none; z-index:9999;
     background: repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,0,0,.025) 3px,rgba(0,0,0,.025) 4px);
   }
  
-  /* ── SCROLLBAR ── */
   ::-webkit-scrollbar { width: 4px; height: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
  
-  /* ── HEADER ── */
   header {
     grid-area: hd;
     background: var(--deep);
@@ -82,7 +79,6 @@
   .logo-sub  { font-family:var(--mono); font-size:.52rem; color:var(--text-dim); letter-spacing:3px; text-transform:uppercase; }
  
   .hd-sep { width:1px; height:30px; background:var(--border2); }
- 
   .hd-model { font-family:var(--mono); font-size:.62rem; color:var(--text-dim); }
   .hd-model b { color:var(--amber); font-weight:600; }
  
@@ -98,7 +94,6 @@
   }
   @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
  
-  /* ── SIDEBAR ── */
   aside {
     grid-area: sb;
     background: var(--deep);
@@ -152,7 +147,6 @@
   .mini-t-name { font-size:.7rem; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .mini-t-row  { display:flex; gap:4px; margin-top:5px; }
  
-  /* ── BADGES ── */
   .badge {
     font-family:var(--mono); font-size:.48rem; padding:2px 7px;
     border-radius:3px; text-transform:uppercase; letter-spacing:1px; font-weight:600; border:1px solid;
@@ -167,7 +161,6 @@
   .b-high       { color:#ff7043; border-color:#ff7043; background:#ff704312; }
   .b-critical   { color:var(--red);   border-color:var(--red);   background:var(--red-dim); }
  
-  /* ── MAIN ── */
   main {
     grid-area: mn;
     display: flex; flex-direction: column;
@@ -175,9 +168,7 @@
     background: var(--black);
   }
  
-  /* ── CHAT ── */
   .chat-wrap { flex:1; overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:14px; }
- 
   .msg { display:flex; gap:12px; max-width:860px; animation:rise .28s ease; }
   @keyframes rise { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
   .msg.user { flex-direction:row-reverse; align-self:flex-end; }
@@ -192,7 +183,6 @@
  
   .msg-body { display:flex; flex-direction:column; gap:4px; }
   .msg.user .msg-body { align-items:flex-end; }
- 
   .msg-meta { font-family:var(--mono); font-size:.53rem; color:var(--text-dim); letter-spacing:1px; }
  
   .bubble {
@@ -240,7 +230,6 @@
   .send:hover  { background:#33ff99; box-shadow:var(--green-glow); }
   .send:disabled { opacity:.35; cursor:not-allowed; }
  
-  /* ── TICKETS TABLE ── */
   .tbl-wrap { flex:1; overflow-y:auto; padding:20px; }
   .tbl-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; }
   .tbl-title { font-family:var(--display); font-size:1.5rem; letter-spacing:3px; color:var(--text-hi); }
@@ -280,7 +269,6 @@
   .act-btn:hover { border-color:var(--amber); color:var(--amber); }
   .act-btn.del:hover { border-color:var(--red); color:var(--red); }
  
-  /* ── MODAL ── */
   .overlay {
     position:fixed; inset:0; background:rgba(7,9,14,.88); backdrop-filter:blur(5px);
     z-index:1000; display:none; align-items:center; justify-content:center;
@@ -313,7 +301,6 @@
   }
   .modal-submit:hover { background:#33ff99; }
  
-  /* Error toast */
   .toast {
     position:fixed; bottom:24px; right:24px; z-index:9000;
     background:var(--red-dim); border:1px solid var(--red); border-radius:8px;
@@ -473,18 +460,15 @@ Your OpenRouter API Key is pulled securely from the backend `.env` file. Start c
 <div class="toast" id="toast"></div>
  
 <script>
-// Target point shifted to your live cloud Render environment endpoint wrapper
 const API = 'https://bugassistant-1.onrender.com';
 let busy = false;
 let localTickets = [];
 
-// Initialize or pull isolated tab session ID
 if (!localStorage.getItem('bug_agent_session')) {
   localStorage.setItem('bug_agent_session', 'session_' + Math.random().toString(36).substring(2, 11));
 }
 const SESSION_ID = localStorage.getItem('bug_agent_session');
  
-// ── API Helpers ────────────────────────────────────────────────────────────
 async function apiFetch(path, opts = {}) {
   const res = await fetch(API + path, {
     headers: { 'Content-Type': 'application/json' },
@@ -518,7 +502,6 @@ async function loadStats() {
   } catch(e) {}
 }
  
-// ── Chat ───────────────────────────────────────────────────────────────────
 async function doSend() {
   if (busy) return;
   const txt = document.getElementById('chatInput').value.trim();
@@ -543,10 +526,7 @@ async function doSend() {
     removeTyping();
     addMsg('assistant', data.response, data.tools_used || []);
  
-    // Flash tools in sidebar
     (data.tools_used || []).forEach(t => flashTool(t.tool));
- 
-    // Reload tickets in case agent modified them
     await loadTickets();
   } catch(e) {
     removeTyping();
@@ -573,16 +553,13 @@ function resize(el) {
   el.style.height = Math.min(el.scrollHeight, 120) + 'px';
 }
  
-// ── Safe Content Rendering ─────────────────────────────────────────────────
 function escapeHtml(str) {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 function parseMarkdown(text) {
   let safe = escapeHtml(text);
-  // Bold parser
   safe = safe.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-  // Inline code block parser
   safe = safe.replace(/`([^`]+)`/g, '<code>$1</code>');
   return safe;
 }
@@ -598,7 +575,7 @@ function addMsg(role, text, toolsUsed = []) {
   let toolsHTML = '';
   if (toolsUsed.length) {
     const safeButtons = toolsUsed.map(t => `<span class="tc">⚙ ${escapeHtml(t.tool)}</span>`).join('');
-    const"tool-bar">${safeButtons}</div>`;
+    toolsHTML = `<div class="tool-bar">${safeButtons}</div>`;
   }
  
   div.innerHTML = `
@@ -634,7 +611,6 @@ function flashTool(name) {
   setTimeout(() => el.classList.remove('firing'), 900);
 }
  
-// ── Sidebar rendering ──────────────────────────────────────────────────────
 function badge(val, type) {
   const cls = type === 'status'
     ? { 'open':'b-open','in-progress':'b-inprogress','resolved':'b-resolved','closed':'b-closed','pending':'b-pending' }[val] || ''
@@ -673,7 +649,6 @@ function renderTable() {
     </tr>`).join('');
 }
  
-// ── Ticket actions ─────────────────────────────────────────────────────────
 async function quickResolve(id) {
   try {
     await apiFetch(`/api/tickets/${id}/status`, {
@@ -691,7 +666,6 @@ async function deleteTicket(id) {
   } catch(e) { showToast(e.message); }
 }
  
-// ── Create Ticket Modal ────────────────────────────────────────────────────
 function openModal()  { document.getElementById('modal').classList.add('open'); }
 function closeModal() { document.getElementById('modal').classList.remove('open'); }
  
@@ -719,7 +693,6 @@ async function submitTicket() {
   } catch(e) { showToast(e.message); }
 }
  
-// ── UI helpers ─────────────────────────────────────────────────────────────
 function showPanel(name) {
   document.querySelectorAll('.panel').forEach(p => p.classList.toggle('on', p.id === `p-${name}`));
   document.querySelectorAll('.nav-btn').forEach((b, i) => {
@@ -735,9 +708,8 @@ function showToast(msg) {
   setTimeout(() => t.classList.remove('show'), 4500);
 }
  
-// ── Init ───────────────────────────────────────────────────────────────────
 loadTickets();
-setInterval(loadStats, 30000); // refresh stats every 30s
+setInterval(loadStats, 30000);
 </script>
 </body>
 </html>
