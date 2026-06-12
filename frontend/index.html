@@ -19,7 +19,7 @@
     --green-glow: 0 0 18px #00e67635;
     --green-dim:  #00e67618;
     --amber:      #ffab00;
-    --amber-dim:  --ffab0012;
+    --amber-dim:  #ffab0012;
     --red:        #ff3d57;
     --red-dim:    #ff3d5712;
     --blue:       #448aff;
@@ -151,7 +151,7 @@
     font-family:var(--mono); font-size:.48rem; padding:2px 7px;
     border-radius:3px; text-transform:uppercase; letter-spacing:1px; font-weight:600; border:1px solid;
   }
-  .b-open       { color:var(--blue);  border-color:var(--blue);  background:var(--blue-dim); }
+  .b-open        { color:var(--blue);  border-color:var(--blue);  background:var(--blue-dim); }
   .b-inprogress { color:var(--amber); border-color:var(--amber); background:var(--amber-dim); }
   .b-resolved   { color:var(--cyan);  border-color:var(--cyan);  background:var(--cyan-dim); }
   .b-closed     { color:var(--text-dim); border-color:var(--border2); background:transparent; }
@@ -484,11 +484,13 @@ async function apiFetch(path, opts = {}) {
 async function loadTickets() {
   try {
     const d = await apiFetch('/api/tickets');
-    localTickets = d.tickets;
+    localTickets = d.tickets || [];
     renderSidebar();
     renderTable();
-    loadStats();
-  } catch(e) { showToast('Backend offline? Check your live status indicator on Render dashboard.'); }
+    await loadStats();
+  } catch(e) { 
+    showToast(`Failed loading active tickets: ${e.message}`); 
+  }
 }
  
 async function loadStats() {
@@ -530,7 +532,7 @@ async function doSend() {
     await loadTickets();
   } catch(e) {
     removeTyping();
-    addMsg('assistant', `❌ Error: ${e.message}\n\nEnsure backend container is live on Render and your model keys are safe.`);
+    addMsg('assistant', `❌ Connection Error: ${e.message}\n\nPlease check your Render live deployment configuration traces.`);
   } finally {
     busy = false;
     document.getElementById('sendBtn').disabled = false;
@@ -554,6 +556,7 @@ function resize(el) {
 }
  
 function escapeHtml(str) {
+  if (!str) return '';
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
@@ -585,7 +588,7 @@ function addMsg(role, text, toolsUsed = []) {
       <div class="bubble"></div>
       ${toolsHTML}
     </div>`;
-     
+       
   div.querySelector('.bubble').innerHTML = parseMarkdown(text);
   wrap.appendChild(div);
   wrap.scrollTop = wrap.scrollHeight;
