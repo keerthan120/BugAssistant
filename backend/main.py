@@ -187,11 +187,13 @@ async def run_agent(user_message: str, fallback_key: Optional[str], session_id: 
     
     history = sessions_db[session_id]
     
+    # Build complete message array with full historical turns
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
-        *history[-20:],
-        {"role": "user", "content": user_message}
+        *history
     ]
+    messages.append({"role": "user", "content": user_message})
+    
     used_tools = []
 
     async with httpx.AsyncClient(timeout=60) as client:
@@ -220,7 +222,7 @@ async def run_agent(user_message: str, fallback_key: Optional[str], session_id: 
             choice = data["choices"][0]
             msg = choice["message"]
             
-            # Save message sequence cleanly to conversation context tracking 
+            # CRITICAL: Append the model's message object directly (retains native 'tool_calls' formatting)
             messages.append(msg)
 
             # Check if model wants to call tool paths
@@ -235,6 +237,7 @@ async def run_agent(user_message: str, fallback_key: Optional[str], session_id: 
                     else:
                         result = execute_local_tool(fn_name, fn_args)
 
+                    # CRITICAL: Append the tool response directly to the sequence chain
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tc["id"],
@@ -242,12 +245,16 @@ async def run_agent(user_message: str, fallback_key: Optional[str], session_id: 
                         "content": json.dumps(result, default=str)
                     })
             else:
+                # Text answer received. Commit the complete multi-turn exchange back to state
                 content = msg.get("content", "Sorry, I could not process that.")
-                # Save execution back to persistent isolated user session history
-                history.append({"role": "user", "content": user_message})
-                history.append({"role": "assistant", "content": content})
-                sessions_db[session_id] = history[-20:] # Keep window bound
                 
+                # Exclude system prompt [0] when saving history
+                sessions_db[session_id] = messages[1:]
+                
+                # Keep sliding memory window bounded safely
+                if len(sessions_db[session_id]) > 30:
+                    sessions_db[session_id] = sessions_db[session_id][-30:]
+                    
                 return {"response": content, "tools_used": used_tools}
 
     return {"response": "Reached max iterations. Please try a more specific request.", "tools_used": used_tools}
