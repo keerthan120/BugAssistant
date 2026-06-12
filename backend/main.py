@@ -6,6 +6,7 @@ from datetime import datetime
 import os
 import httpx
 import json
+import threading
 from dotenv import load_dotenv
 
 # Load environment variables from the .env file at startup
@@ -21,7 +22,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── In-Memory Database (Thread-Safe Mocking) ───────────────────────────────
+# ── Thread-Safe In-Memory Database Lock ────────────────────────────────────
+db_lock = threading.Lock()
+
+# Mock Storage Data
 tickets: Dict[str, Any] = {
     "TKT-001": {"id":"TKT-001","title":"Login page crashes on iOS Safari","description":"Users report the login page crashes when using Safari on iOS 16+.","status":"open","priority":"high","assignee":"alice@company.com","created_at":"2026-05-20","updated_at":"2026-05-20","tags":["mobile","login","crash","ios"]},
     "TKT-002": {"id":"TKT-002","title":"API response slow on large datasets","description":"API takes >10s to respond when fetching more than 1000 records.","status":"in-progress","priority":"medium","assignee":"bob@company.com","created_at":"2026-05-21","updated_at":"2026-05-22","tags":["api","performance","timeout"]},
@@ -31,13 +35,12 @@ tickets: Dict[str, Any] = {
     "TKT-006": {"id":"TKT-006","title":"Dashboard charts not loading","description":"Analytics dashboard shows blank charts for users with >10k data points.","status":"in-progress","priority":"high","assignee":"charlie@company.com","created_at":"2026-05-25","updated_at":"2026-05-25","tags":["dashboard","charts","javascript"]},
 }
 
-# Session isolation: maps user/session keys to conversation arrays
 sessions_db: Dict[str, List[Dict[str, Any]]] = {}
 
 # ── Pydantic Models ────────────────────────────────────────────────────────
 class ChatRequest(BaseModel):
     message: str
-    api_key: Optional[str] = None  # Handled as optional since backend can use .env instead
+    api_key: Optional[str] = None
     session_id: str = "default-user"
 
 class CreateTicketRequest(BaseModel):
@@ -63,13 +66,14 @@ def next_ticket_id():
     return f"TKT-{(max(nums) + 1):03d}" if nums else "TKT-001"
 
 def tool_create_new_ticket(title: str, description: str, priority: str = "medium", assignee: str = "unassigned"):
-    tid = next_ticket_id()
-    tickets[tid] = {
-        "id": tid, "title": title, "description": description, "status": "open",
-        "priority": priority.lower(), "assignee": assignee,
-        "created_at": today(), "updated_at": today(), "tags": []
-    }
-    return {"success": True, "ticket": tickets[tid], "message": f"Ticket {tid} created."}
+    with db_lock:
+        tid = next_ticket_id()
+        tickets[tid] = {
+            "id": tid, "title": title, "description": description, "status": "open",
+            "priority": priority.lower(), "assignee": assignee,
+            "created_at": today(), "updated_at": today(), "tags": []
+        }
+        return {"success": True, "ticket": tickets[tid], "message": f"Ticket {tid} created."}
 
 def tool_get_ticket_by_id(ticket_id: str):
     t = tickets.get(ticket_id.upper())
@@ -100,25 +104,29 @@ def tool_get_tickets_by_date_range(start_date: str, end_date: str):
 
 def tool_update_ticket_status(ticket_id: str, new_status: str):
     tid = ticket_id.upper()
-    if tid not in tickets:
-        return {"success": False, "message": f"{ticket_id} not found."}
     valid = ["open", "in-progress", "resolved", "closed", "pending"]
     if new_status.lower() not in valid:
         return {"success": False, "message": f"Invalid status. Valid: {valid}"}
-    tickets[tid]["status"] = new_status.lower()
-    tickets[tid]["updated_at"] = today()
-    return {"success": True, "message": f"{tid} status -> '{new_status}'", "ticket": tickets[tid]}
+    
+    with db_lock:
+        if tid not in tickets:
+            return {"success": False, "message": f"{ticket_id} not found."}
+        tickets[tid]["status"] = new_status.lower()
+        tickets[tid]["updated_at"] = today()
+        return {"success": True, "message": f"{tid} status -> '{new_status}'", "ticket": tickets[tid]}
 
 def tool_update_ticket_priority(ticket_id: str, new_priority: str):
     tid = ticket_id.upper()
-    if tid not in tickets:
-        return {"success": False, "message": f"{ticket_id} not found."}
     valid = ["low", "medium", "high", "critical"]
     if new_priority.lower() not in valid:
         return {"success": False, "message": f"Invalid priority. Valid: {valid}"}
-    tickets[tid]["priority"] = new_priority.lower()
-    tickets[tid]["updated_at"] = today()
-    return {"success": True, "message": f"{tid} priority -> '{new_priority}'", "ticket": tickets[tid]}
+    
+    with db_lock:
+        if tid not in tickets:
+            return {"success": False, "message": f"{ticket_id} not found."}
+        tickets[tid]["priority"] = new_priority.lower()
+        tickets[tid]["updated_at"] = today()
+        return {"success": True, "message": f"{tid} priority -> '{new_priority}'", "ticket": tickets[tid]}
 
 async def tool_google_search_agent(query: str):
     try:
@@ -126,6 +134,8 @@ async def tool_google_search_agent(query: str):
             r = await client.get(
                 f"https://api.duckduckgo.com/?q={query}&format=json&no_html=1&skip_disambig=1"
             )
+            if r.status_code != 200:
+                return {"success": False, "query": query, "message": f"Search API error status code {r.status_code}"}
             d = r.json()
             abstract = d.get("AbstractText", "")
             related = [x.get("Text", "") for x in d.get("RelatedTopics", [])[:4] if "Text" in x]
@@ -133,7 +143,6 @@ async def tool_google_search_agent(query: str):
     except Exception as e:
         return {"success": False, "query": query, "message": str(e)}
 
-# Dynamic clean execution mapper
 def execute_local_tool(name: str, args: dict):
     mappers = {
         "create_new_ticket": tool_create_new_ticket,
@@ -171,9 +180,8 @@ Help triage, manage, and resolve software issues using the ticket management sys
 Always use tools to fetch real data. Give clear, structured summaries after tool results.
 Today's date: 2026-05-26."""
 
-# ── Agent Loop ─────────────────────────────────────────────────────────────
+# ── Agent Loop (With Complete History Sequence Tracking) ───────────────────
 async def run_agent(user_message: str, fallback_key: Optional[str], session_id: str):
-    # Prioritize Key in .env file, then look at what the frontend request passed down
     active_api_key = os.getenv("OPENROUTER_API_KEY") or fallback_key
     
     if not active_api_key:
@@ -187,7 +195,6 @@ async def run_agent(user_message: str, fallback_key: Optional[str], session_id: 
     
     history = sessions_db[session_id]
     
-    # Build complete message array with full historical turns
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         *history
@@ -222,10 +229,9 @@ async def run_agent(user_message: str, fallback_key: Optional[str], session_id: 
             choice = data["choices"][0]
             msg = choice["message"]
             
-            # CRITICAL: Append the model's message object directly (retains native 'tool_calls' formatting)
+            # Append assistant message directly (contains nested structure for tool_calls)
             messages.append(msg)
 
-            # Check if model wants to call tool paths
             if msg.get("tool_calls"):
                 for tc in msg["tool_calls"]:
                     fn_name = tc["function"]["name"]
@@ -237,7 +243,7 @@ async def run_agent(user_message: str, fallback_key: Optional[str], session_id: 
                     else:
                         result = execute_local_tool(fn_name, fn_args)
 
-                    # CRITICAL: Append the tool response directly to the sequence chain
+                    # Append corresponding tool output response to trace sequence
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tc["id"],
@@ -245,13 +251,11 @@ async def run_agent(user_message: str, fallback_key: Optional[str], session_id: 
                         "content": json.dumps(result, default=str)
                     })
             else:
-                # Text answer received. Commit the complete multi-turn exchange back to state
                 content = msg.get("content", "Sorry, I could not process that.")
                 
-                # Exclude system prompt [0] when saving history
+                # Exclude the system prompt at [0] when syncing historical trace strings
                 sessions_db[session_id] = messages[1:]
                 
-                # Keep sliding memory window bounded safely
                 if len(sessions_db[session_id]) > 30:
                     sessions_db[session_id] = sessions_db[session_id][-30:]
                     
@@ -295,9 +299,10 @@ def update_priority(ticket_id: str, req: UpdatePriorityRequest):
 @app.delete("/api/tickets/{ticket_id}")
 def delete_ticket(ticket_id: str):
     tid = ticket_id.upper()
-    if tid not in tickets:
-        raise HTTPException(status_code=404, detail="Ticket not found")
-    del tickets[tid]
+    with db_lock:
+        if tid not in tickets:
+            raise HTTPException(status_code=404, detail="Ticket not found")
+        del tickets[tid]
     return {"success": True, "message": f"{tid} deleted."}
 
 @app.get("/api/stats")
